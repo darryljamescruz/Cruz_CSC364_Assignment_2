@@ -128,12 +128,10 @@ def process_request(data, address):
 
     # Handle LIST (list all channels)
     elif message_type == LIST:
-        channel_names = list(channels.keys())
-        total_channels = len(channel_names)
-        packet_content = struct.pack("!I", total_channels)
-        for channel in channel_names:
-            packet_content += channel.ljust(32).encode()
-        send_packet(address, LIST, packet_content)
+        # Construct the list of channels, padded to 32 bytes each
+        channel_list = "Existing channels:\n" + "\n ".join(channels.keys())
+        send_packet(address, LIST, channel_list.encode())
+        print(f"Processed LIST request. Sent channels: {channels.keys()}")
 
     # Handle JOIN (join a channel)
     elif message_type == JOIN and len(data) >= 68:
@@ -164,16 +162,16 @@ def process_request(data, address):
     elif message_type == WHO and len(data) >= 36:
         channel_name = data[4:36].strip().decode()
         if channel_name in channels:
-            total_users = len(channels[channel_name])
-            packet_content = struct.pack("!I", total_users)
-            packet_content += channel_name.ljust(32).encode()
-            for user in channels[channel_name]:
-                packet_content += user.ljust(32).encode()
-            send_packet(address, WHO, packet_content)
-            print(f"Sent WHO response for channel {channel_name} with {total_users} users.")
+            # Get users in the channel
+            user_list = ", ".join(channels[channel_name])
+            response = f"Users on channel {channel_name}:\n {user_list}"
+            send_packet(address, WHO, response.encode())
+            print(f"Processed WHO request for channel {channel_name}. Users: {user_list}")
         else:
-            send_packet(address, WHO, f"Error: Channel '{channel_name}' not found.".encode())
-            
+            error_msg = f"Error: Channel '{channel_name}' not found."
+            send_packet(address, WHO, error_msg.encode())
+            print(f"WHO request error: {error_msg}")
+
     # Handle KEEP_ALIVE
     elif message_type == KEEP_ALIVE and len(data) >= 36:
         if username in users:

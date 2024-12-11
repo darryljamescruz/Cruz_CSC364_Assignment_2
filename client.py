@@ -56,6 +56,15 @@ def handle_command(command):
         print("You are disconnected. Please restart the client to reconnect.")
         return 
     
+    # If the input doesn't start with '/', treat it as a `/say` command
+    if not command.startswith("/"):
+        message = command.strip()
+        if not message:
+            return  # Ignore empty input
+        send_packet(SAY, active_channel.ljust(32).encode() + username.ljust(32).encode() + message.ljust(64).encode())
+        return
+    
+    
     if command.startswith("/exit"):
         send_packet(LOGOUT, username.ljust(32).encode())
         connected = False
@@ -92,15 +101,6 @@ def handle_command(command):
         else:
             print(f"Error: You are not in the channel '{channel_name}'.")
             
-            
-    elif command.startswith("/say"):
-        message = command[5:].strip()
-        if not message:
-            print("Error: Message cannot be empty.")
-            return
-        send_packet(SAY, active_channel.ljust(32).encode() + username.ljust(32).encode() + message.ljust(64).encode())
-        
-        
     elif command.startswith("/switch"):
         parts = command.split(maxsplit=1)
         if len(parts) < 2:
@@ -130,7 +130,7 @@ Available Commands:
 /list             - List all available channels.
 /join [channel]   - Join a specified channel.
 /leave [channel]  - Leave a specified channel.
-/say [message]    - Send a message to the active channel.
+[message]         - Send a message to the active channel.
 /switch [channel] - Switch to a joined channel.
 /who [channel]    - List users in a specified channel.
 /help             - Display this help message.
@@ -158,7 +158,7 @@ def receive_messages():
                 connected = False
                 sys.exit()
             else:
-                display_message(f"Message from server: {data[4:].decode()}")
+                display_message(f"{data[4:].decode()}")
         except OSError:
             break
     
