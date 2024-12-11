@@ -6,6 +6,7 @@ import time
 
 # Message types
 LOGIN, LOGOUT, LIST, JOIN, SAY, WHO, LEAVE, KEEP_ALIVE = range(8)
+SHUTDOWN = 8
 
 HOST = "localhost"
 PORT = 5000
@@ -21,6 +22,7 @@ client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 # Track current user input and keep-alive state
 current_input = ""
 last_packet_time = time.time()  # Track the last time a packet was sent
+connected = True  # Track if the client is connected to the server
 
 def send_packet(message_type, content=b''):
     """Send a structured packet to the server."""
@@ -49,13 +51,22 @@ def keep_alive():
 
 def handle_command(command):
     """Process user commands."""
-    global active_channel, current_input
+    global active_channel, current_input, connected
     current_input = ""  # Clear input after processing
+
+    if not connected:
+        print("You are disconnected. Please restart the client to reconnect.")
+        return 
+    
     if command.startswith("/exit"):
         send_packet(LOGOUT, username.ljust(32).encode())
         sys.exit("Logged out.")
+        
+        
     elif command.startswith("/list"):
         send_packet(LIST)
+        
+        
     elif command.startswith("/join"):
         parts = command.split(maxsplit=1)
         if len(parts) < 2:
@@ -65,6 +76,8 @@ def handle_command(command):
         send_packet(JOIN, username.ljust(32).encode() + channel_name.ljust(32).encode())
         joined_channels.add(channel_name)
         active_channel = channel_name
+        
+        
     elif command.startswith("/leave"):
         parts = command.split(maxsplit=1)
         if len(parts) < 2:
@@ -79,12 +92,16 @@ def handle_command(command):
             print(f"You have left channel: {channel_name}.")
         else:
             print(f"Error: You are not in the channel '{channel_name}'.")
+            
+            
     elif command.startswith("/say"):
         message = command[5:].strip()
         if not message:
             print("Error: Message cannot be empty.")
             return
         send_packet(SAY, active_channel.ljust(32).encode() + username.ljust(32).encode() + message.ljust(64).encode())
+        
+        
     elif command.startswith("/switch"):
         parts = command.split(maxsplit=1)
         if len(parts) < 2:
@@ -96,6 +113,8 @@ def handle_command(command):
             print(f"Switched to channel: {channel_name}")
         else:
             print(f"Error: You cannot switch to '{channel_name}' because you have not joined this channel.")
+            
+            
     elif command.startswith("/who"):
         parts = command.split(maxsplit=1)
         if len(parts) < 2:
@@ -103,6 +122,8 @@ def handle_command(command):
             return
         channel_name = parts[1].strip()
         send_packet(WHO, channel_name.ljust(32).encode())
+        
+        
     elif command.startswith("/help"):
         print("""
 Available Commands:
@@ -115,29 +136,43 @@ Available Commands:
 /who [channel]    - List users in a specified channel.
 /help             - Display this help message.
         """)
+        
+        
     else:
         print(f"Error: Unknown command '{command}'. Type /help for a list of valid commands.")
         
+        
 def receive_messages():
     """Receive and print messages from the server."""
-    while True:
+    global connected
+    while connected:
         data, _ = client_socket.recvfrom(1024)
         message_type = struct.unpack("!I", data[:4])[0]
         if message_type == LOGOUT:
             print("Disconnected: The server has timed you out due to inactivity.")
+            print("You can restart the client to reconnect.")
+            connected = False
+            sys.exit()  # Stop further execution
+        elif message_type == SHUTDOWN:
+            print("Server is shutting down. You have been disconnected.")
+            connected = False
             sys.exit()
         else:
             display_message(f"Message from server: {data[4:].decode()}")
-
+            
+            
 def main():
     """Start the client."""
+    global current_input, connected
     send_packet(LOGIN, username.ljust(32).encode())
     threading.Thread(target=receive_messages, daemon=True).start()
     print(f"Logged in as {username}. Type /help for commands.")
-    while True:
-        global current_input
-        current_input = input("> ").strip()
-        handle_command(current_input)
+    while connected:
+        try:
+            current_input = input("> ").strip()
+            handle_command(current_input)
+        except EOFError:
+            break
 
 if __name__ == "__main__":
     main()

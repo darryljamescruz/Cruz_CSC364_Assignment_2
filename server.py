@@ -60,11 +60,12 @@ def handle_logout(username):
                 del channels[channel_name]
         print(f"User {username} logged out.")
         
-        
+SHUTDOWN = 8
+     
 def notify_clients_of_shutdown():
     """Notify all connected clients about the server shutdown."""
     for username, (address, _) in users.items():
-        send_packet(address, LOGOUT, b"Server is shutting down. You have been disconnected.")
+        send_packet(address, SHUTDOWN, b"Server is shutting down. Goodbye!")
     print("All clients have been notified of server shutdown.")
 
 
@@ -76,12 +77,19 @@ def process_request(data, address):
 
     message_type = struct.unpack("!I", data[:4])[0]
     username = data[4:36].strip().decode()
+    
+    # Ignore packets from inactive users except for LOGIN
+    if username not in users or message_type != LOGIN:
+        print(f"Ignoring packet from inactive user: {username}")
+        send_packet(address, LOGOUT, b"Error: You have been disconnected. Please log in again.")
+        return
 
     # Handle LOGIN
     if message_type == LOGIN and len(data) >= 36:
-        users[username] = (address, time.time())
+        users[username] = (address, time.time())    # Update last_active_time on login
         channels["Common"].add(username)
         print(f"User {username} logged in.")
+        send_packet(address, LOGIN, b"Welcome to the server!")
 
     # Handle LOGOUT
     elif message_type == LOGOUT:
@@ -119,29 +127,35 @@ def process_request(data, address):
             print(f"[{channel_name}][{username}]: {message}")
 
     # Handle WHO (list users in a channel)
+#    elif message_type == WHO and len(data) >= 68:
+#        channel_name = data[36:68].strip().decode()
+#        if channel_name in channels:
+#            if username in channels[channel_name]:
+#                user_list = ", ".join(channels[channel_name]).encode()
+#                send_packet(address, WHO, f"Users in {channel_name}: {user_list.decode()}".encode())
+#            else:
+#                send_packet(address, WHO, f"Error: You are not in the channel '{channel_name}'.".encode())
+#        else:
+#            send_packet(address, WHO, f"Error: Channel '{channel_name}' not found.".encode())
+#            
     elif message_type == WHO and len(data) >= 68:
-        channel_name = data[36:68].strip().decode()
-        if channel_name in channels:
-            if username in channels[channel_name]:
-                user_list = ", ".join(channels[channel_name]).encode()
-                send_packet(address, WHO, f"Users in {channel_name}: {user_list.decode()}".encode())
-            else:
-                send_packet(address, WHO, f"Error: You are not in the channel '{channel_name}'.".encode())
-        else:
-            send_packet(address, WHO, f"Error: Channel '{channel_name}' not found.".encode())
+     channel_name = data[36:68].strip().decode()
+     if channel_name in channels:
+         if username in channels[channel_name]:
+             user_list = ", ".join(channels[channel_name])
+             send_packet(address, WHO, f"Users in {channel_name}: {user_list}".encode())
+         else:
+             send_packet(address, WHO, f"Error: You are not in the channel '{channel_name}'.".encode())
+     else:
+         send_packet(address, WHO, f"Error: Channel '{channel_name}' not found.".encode())         
             
+    
     # Handle KEEP_ALIVE
     elif message_type == KEEP_ALIVE and len(data) >= 36:
         if username in users:
             users[username] = (address, time.time())  # Update activity time
             print(f"Keep Alive received from {username}.")
             
-# Handle users who were timed out and send a logout packet.
-    if username not in users and message_type != LOGIN:
-        print(f"Ignoring packet from inactive user: {username}")
-        send_packet(address, LOGOUT, b"Error: You have been disconnected. Please log in again.")
-        return
-
     # Update activity time for all valid packets
     if username in users:
         users[username] = (address, time.time())
