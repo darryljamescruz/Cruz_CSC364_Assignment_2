@@ -27,24 +27,22 @@ connected = True  # Track if the client is connected to the server
 def send_packet(message_type, content=b''):
     """Send a structured packet to the server."""
     global last_packet_time
-    packet = struct.pack("!I", message_type) + content
-    client_socket.sendto(packet, ADDR)
-    last_packet_time = time.time()
+    if connected:
+        packet = struct.pack("!I", message_type) + content
+        client_socket.sendto(packet, ADDR)
+        last_packet_time = time.time()
 
 def display_message(message):
     """Handle displaying server messages while preserving user input."""
     global current_input
-    # Clear the current input line
-    sys.stdout.write("\r" + " " * 80 + "\r")
-    # Print the server message
+    sys.stdout.write("\r" + " " * 80 + "\r")  # Clear the current input line
     print(message)
-    # Redisplay the prompt and user's current input
-    sys.stdout.write(f"> {current_input}")
+    sys.stdout.write(f"> {current_input}")  # Redisplay the prompt and user's current input
     sys.stdout.flush()
     
 def keep_alive():
     """Send a KEEP_ALIVE packet every 60 seconds if no other packets are sent."""
-    while True:
+    while connected:
         time.sleep(60)
         if time.time() - last_packet_time >= 60:
             send_packet(KEEP_ALIVE, username.ljust(32).encode())
@@ -60,6 +58,7 @@ def handle_command(command):
     
     if command.startswith("/exit"):
         send_packet(LOGOUT, username.ljust(32).encode())
+        connected = False
         sys.exit("Logged out.")
         
         
@@ -146,33 +145,39 @@ def receive_messages():
     """Receive and print messages from the server."""
     global connected
     while connected:
-        data, _ = client_socket.recvfrom(1024)
-        message_type = struct.unpack("!I", data[:4])[0]
-        if message_type == LOGOUT:
-            print("Disconnected: The server has timed you out due to inactivity.")
-            print("You can restart the client to reconnect.")
-            connected = False
-            sys.exit()  # Stop further execution
-        elif message_type == SHUTDOWN:
-            print("Server is shutting down. You have been disconnected.")
-            connected = False
-            sys.exit()
-        else:
-            display_message(f"Message from server: {data[4:].decode()}")
-            
+        try:
+            data, _ = client_socket.recvfrom(1024)
+            message_type = struct.unpack("!I", data[:4])[0]
+            if message_type == LOGOUT:
+                print("Disconnected: The server has timed you out due to inactivity.")
+                print("You can restart the client to reconnect.")
+                connected = False
+                sys.exit()  # Stop further execution
+            elif message_type == SHUTDOWN:
+                print("Server is shutting down. You have been disconnected.")
+                connected = False
+                sys.exit()
+            else:
+                display_message(f"Message from server: {data[4:].decode()}")
+        except OSError:
+            break
+    
             
 def main():
     """Start the client."""
     global current_input, connected
     send_packet(LOGIN, username.ljust(32).encode())
     threading.Thread(target=receive_messages, daemon=True).start()
+    threading.Thread(target=keep_alive, daemon=True).start()
     print(f"Logged in as {username}. Type /help for commands.")
     while connected:
         try:
             current_input = input("> ").strip()
             handle_command(current_input)
-        except EOFError:
-            break
+        except (EOFError, KeyboardInterrupt):
+            connected = False
+            print("\nDisconnected.")
+            sys.exit()
 
 if __name__ == "__main__":
     main()
