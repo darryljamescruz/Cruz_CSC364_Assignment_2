@@ -71,11 +71,14 @@ def handle_command(command):
             print("Error: Channel name required for /leave.")
             return
         channel_name = parts[1].strip()
-        send_packet(LEAVE, username.ljust(32).encode() + channel_name.ljust(32).encode())
-        if active_channel == channel_name:
-            active_channel = "Common"  # Default back to "Common"
-        joined_channels.discard(channel_name)
-        print(f"You have left channel: {channel_name}.")
+        if channel_name in joined_channels:
+            send_packet(LEAVE, username.ljust(32).encode() + channel_name.ljust(32).encode())
+            joined_channels.discard(channel_name)
+            if active_channel == channel_name:
+                active_channel = "Common"  # Default to "Common"
+            print(f"You have left channel: {channel_name}.")
+        else:
+            print(f"Error: You are not in the channel '{channel_name}'.")
     elif command.startswith("/say"):
         message = command[5:].strip()
         if not message:
@@ -92,11 +95,11 @@ def handle_command(command):
             active_channel = channel_name
             print(f"Switched to channel: {channel_name}")
         else:
-            print(f"Error: You have not joined the channel '{channel_name}'.")
+            print(f"Error: You cannot switch to '{channel_name}' because you have not joined this channel.")
     elif command.startswith("/who"):
         parts = command.split(maxsplit=1)
         if len(parts) < 2:
-            print("Error: Channel name required for /who.")
+            print("Error: Please specify a channel name (e.g., /who [channel]).")
             return
         channel_name = parts[1].strip()
         send_packet(WHO, channel_name.ljust(32).encode())
@@ -113,13 +116,18 @@ Available Commands:
 /help             - Display this help message.
         """)
     else:
-        print("Unknown or malformed command.")
-
+        print(f"Error: Unknown command '{command}'. Type /help for a list of valid commands.")
+        
 def receive_messages():
     """Receive and print messages from the server."""
     while True:
         data, _ = client_socket.recvfrom(1024)
-        display_message(f"Message from server: {data.decode()}")
+        message_type = struct.unpack("!I", data[:4])[0]
+        if message_type == LOGOUT:
+            print("Disconnected: The server has timed you out due to inactivity.")
+            sys.exit()
+        else:
+            display_message(f"Message from server: {data[4:].decode()}")
 
 def main():
     """Start the client."""

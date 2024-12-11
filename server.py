@@ -1,5 +1,6 @@
 import socket
 import struct
+import sys
 import time
 import threading
 
@@ -25,6 +26,17 @@ def send_packet(address, message_type, content=b''):
     server_socket.sendto(packet, address)
 
 
+def server_command_listener():
+    """Listen for server-side commands to control the server."""
+    while True:
+        command = input().strip().lower()
+        if command == "quit":
+            print("Shutting down the server...")
+            notify_clients_of_shutdown()
+            server_socket.close()
+            sys.exit(0)  # Exit the server program
+            
+            
 def timeout_users():
     """Periodically check for inactive users and log them out."""
     while True:
@@ -39,12 +51,21 @@ def timeout_users():
 def handle_logout(username):
     """Handle user logout."""
     if username in users:
+        address = users[username][0]
+        send_packet(address, LOGOUT, b"Server: You have been disconnected due to inactivity.")
         del users[username]
         for channel_name in list(channels.keys()):
             channels[channel_name].discard(username)
             if not channels[channel_name]:  # Remove empty channel
                 del channels[channel_name]
         print(f"User {username} logged out.")
+        
+        
+def notify_clients_of_shutdown():
+    """Notify all connected clients about the server shutdown."""
+    for username, (address, _) in users.items():
+        send_packet(address, LOGOUT, b"Server is shutting down. You have been disconnected.")
+    print("All clients have been notified of server shutdown.")
 
 
 def process_request(data, address):
@@ -98,19 +119,28 @@ def process_request(data, address):
             print(f"[{channel_name}][{username}]: {message}")
 
     # Handle WHO (list users in a channel)
-    elif message_type == WHO and len(data) >= 36:
+    elif message_type == WHO and len(data) >= 68:
         channel_name = data[36:68].strip().decode()
         if channel_name in channels:
-            user_list = ", ".join(channels[channel_name]).encode()
-            send_packet(address, WHO, f"Active users: {user_list.decode()}".encode())
+            if username in channels[channel_name]:
+                user_list = ", ".join(channels[channel_name]).encode()
+                send_packet(address, WHO, f"Users in {channel_name}: {user_list.decode()}".encode())
+            else:
+                send_packet(address, WHO, f"Error: You are not in the channel '{channel_name}'.".encode())
         else:
-            send_packet(address, WHO, b"Error: Channel not found.")
-
+            send_packet(address, WHO, f"Error: Channel '{channel_name}' not found.".encode())
+            
     # Handle KEEP_ALIVE
     elif message_type == KEEP_ALIVE and len(data) >= 36:
         if username in users:
             users[username] = (address, time.time())  # Update activity time
             print(f"Keep Alive received from {username}.")
+            
+# Handle users who were timed out and send a logout packet.
+    if username not in users and message_type != LOGIN:
+        print(f"Ignoring packet from inactive user: {username}")
+        send_packet(address, LOGOUT, b"Error: You have been disconnected. Please log in again.")
+        return
 
     # Update activity time for all valid packets
     if username in users:
@@ -120,10 +150,14 @@ def process_request(data, address):
 def server_main():
     """Start the server."""
     threading.Thread(target=timeout_users, daemon=True).start()
-    print("Server is running...")
+    threading.Thread(target=server_command_listener, daemon=True).start()
+    print("Server is running... Type 'quit' to shut down.")
     while True:
-        data, address = server_socket.recvfrom(1024)
-        process_request(data, address)
+        try:
+            data, address = server_socket.recvfrom(1024)
+            process_request(data, address)
+        except OSError:
+            break  # Exit the loop if the socket is closed
 
 
 if __name__ == "__main__":
