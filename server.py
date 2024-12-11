@@ -96,7 +96,7 @@ def process_request(data, address):
         return
 
     # Extract username for all other message types dynamically
-    if message_type in (LOGOUT, LIST, JOIN, LEAVE, WHO, KEEP_ALIVE):
+    if message_type in (LOGOUT, JOIN, LEAVE, KEEP_ALIVE):
         username = data[4:36].strip().decode()
         
     # Special case for SAY
@@ -106,19 +106,21 @@ def process_request(data, address):
         message = data[68:132].strip().decode()
         
     # Check if username was properly extracted
-    if username is None:
+    if username is None and message_type not in {LIST, WHO}:
         print(f"Error: Could not extract username for message type {message_type}.")
         return
 
     # Ignore packets from inactive users
-    if username not in users:
-        if username not in inactive_users:
-            print(f"Ignoring packet from inactive user: {username}")
-            inactive_users.add(username)  # Add user to inactive_users
-        send_packet(address, LOGOUT, b"Error: You have been disconnected. Please log in again.")
-        return
-
-    inactive_users.discard(username)  # Mark user as active again
+    if username is None or username not in users:
+        if message_type not in {LIST, WHO}:  # Skip username checks for LIST and WHO
+            if username and username not in inactive_users:
+                print(f"Ignoring packet from inactive user: {username}")
+                inactive_users.add(username)  # Add user to inactive_users
+            send_packet(address, LOGOUT, b"Error: You have been disconnected. Please log in again.")
+            return
+    
+    if username:
+        inactive_users.discard(username)  # Mark user as active again
 
     # Handle LOGOUT
     if message_type == LOGOUT:
@@ -126,8 +128,12 @@ def process_request(data, address):
 
     # Handle LIST (list all channels)
     elif message_type == LIST:
-        channel_list = "\n".join(channels.keys()).encode()
-        send_packet(address, LIST, channel_list)
+        channel_names = list(channels.keys())
+        total_channels = len(channel_names)
+        packet_content = struct.pack("!I", total_channels)
+        for channel in channel_names:
+            packet_content += channel.ljust(32).encode()
+        send_packet(address, LIST, packet_content)
 
     # Handle JOIN (join a channel)
     elif message_type == JOIN and len(data) >= 68:
@@ -155,17 +161,19 @@ def process_request(data, address):
             print(f"Error: Channel '{channel_name}' not found.")
 
     # Handle WHO (list users in a channel)
-    elif message_type == WHO and len(data) >= 68:
-        channel_name = data[36:68].strip().decode()
+    elif message_type == WHO and len(data) >= 36:
+        channel_name = data[4:36].strip().decode()
         if channel_name in channels:
-            if username in channels[channel_name]:
-                user_list = ", ".join(channels[channel_name])
-                send_packet(address, WHO, f"Users in {channel_name}: {user_list}".encode())
-            else:
-                send_packet(address, WHO, f"Error: You are not in the channel '{channel_name}'.".encode())
+            total_users = len(channels[channel_name])
+            packet_content = struct.pack("!I", total_users)
+            packet_content += channel_name.ljust(32).encode()
+            for user in channels[channel_name]:
+                packet_content += user.ljust(32).encode()
+            send_packet(address, WHO, packet_content)
+            print(f"Sent WHO response for channel {channel_name} with {total_users} users.")
         else:
             send_packet(address, WHO, f"Error: Channel '{channel_name}' not found.".encode())
-
+            
     # Handle KEEP_ALIVE
     elif message_type == KEEP_ALIVE and len(data) >= 36:
         if username in users:
