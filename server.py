@@ -80,6 +80,11 @@ def process_request(data, address):
         return
 
     message_type = struct.unpack("!I", data[:4])[0]
+    
+    # Debugging logs for packet parsing
+    print(f"Packet received: type={message_type}, data={data}")
+    
+    username = None # Default to None
 
     # Handle LOGIN
     if message_type == LOGIN and len(data) >= 36:
@@ -89,10 +94,22 @@ def process_request(data, address):
         print(f"User {username} logged in.")
         send_packet(address, LOGIN, b"Welcome to the server!")
         return
-    
-    # Debugging logs for packet parsing
-    print(f"Packet received: type={message_type}, username={username}, data={data}")
-    
+
+    # Extract username for all other message types dynamically
+    if message_type in (LOGOUT, LIST, JOIN, LEAVE, WHO, KEEP_ALIVE):
+        username = data[4:36].strip().decode()
+        
+    # Special case for SAY
+    if message_type == SAY and len(data) >= 132:
+        channel_name = data[4:36].strip().decode()
+        username = data[36:68].strip().decode()  # SAY packet username is in a different position
+        message = data[68:132].strip().decode()
+        
+    # Check if username was properly extracted
+    if username is None:
+        print(f"Error: Could not extract username for message type {message_type}.")
+        return
+
     # Ignore packets from inactive users
     if username not in users:
         if username not in inactive_users:
@@ -129,8 +146,6 @@ def process_request(data, address):
 
     # Handle SAY (send a message to a channel)
     elif message_type == SAY and len(data) >= 132:
-        channel_name = data[4:36].strip().decode()  # Extract channel name correctly
-        message = data[68:132].strip().decode()  # Extract message content
         if channel_name in channels:
             for user in channels[channel_name]:
                 if user in users:
