@@ -17,14 +17,29 @@ active_channel = "Common"
 # Create UDP socket
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
+# Track current user input
+current_input = ""
+
 def send_packet(message_type, content=b''):
     """Send a structured packet to the server."""
     packet = struct.pack("!I", message_type) + content
     client_socket.sendto(packet, ADDR)
 
+def display_message(message):
+    """Handle displaying server messages while preserving user input."""
+    global current_input
+    # Clear the current input line
+    sys.stdout.write("\r" + " " * 80 + "\r")
+    # Print the server message
+    print(message)
+    # Redisplay the prompt and user's current input
+    sys.stdout.write(f"> {current_input}")
+    sys.stdout.flush()
+
 def handle_command(command):
     """Process user commands."""
-    global active_channel
+    global active_channel, current_input
+    current_input = ""  # Clear input after processing
     if command.startswith("/exit"):
         send_packet(LOGOUT, username.ljust(32).encode())
         sys.exit("Logged out.")
@@ -93,7 +108,7 @@ def receive_messages():
     """Receive and print messages from the server."""
     while True:
         data, _ = client_socket.recvfrom(1024)
-        print(f"Message from server: {data.decode()}")
+        display_message(f"Message from server: {data.decode()}")
 
 def main():
     """Start the client."""
@@ -101,8 +116,9 @@ def main():
     threading.Thread(target=receive_messages, daemon=True).start()
     print(f"Logged in as {username}. Type /help for commands.")
     while True:
-        command = input("> ").strip()
-        handle_command(command)
+        global current_input
+        current_input = input("> ").strip()
+        handle_command(current_input)
 
 if __name__ == "__main__":
     main()
