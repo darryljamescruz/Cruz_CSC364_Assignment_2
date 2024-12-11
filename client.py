@@ -2,6 +2,7 @@ import socket
 import struct
 import sys
 import threading
+import time
 
 # Message types
 LOGIN, LOGOUT, LIST, JOIN, SAY, WHO, LEAVE, KEEP_ALIVE = range(8)
@@ -17,13 +18,16 @@ active_channel = "Common"
 # Create UDP socket
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
-# Track current user input
+# Track current user input and keep-alive state
 current_input = ""
+last_packet_time = time.time()  # Track the last time a packet was sent
 
 def send_packet(message_type, content=b''):
     """Send a structured packet to the server."""
+    global last_packet_time
     packet = struct.pack("!I", message_type) + content
     client_socket.sendto(packet, ADDR)
+    last_packet_time = time.time()
 
 def display_message(message):
     """Handle displaying server messages while preserving user input."""
@@ -35,6 +39,13 @@ def display_message(message):
     # Redisplay the prompt and user's current input
     sys.stdout.write(f"> {current_input}")
     sys.stdout.flush()
+    
+def keep_alive():
+    """Send a KEEP_ALIVE packet every 60 seconds if no other packets are sent."""
+    while True:
+        time.sleep(60)
+        if time.time() - last_packet_time >= 60:
+            send_packet(KEEP_ALIVE, username.ljust(32).encode())
 
 def handle_command(command):
     """Process user commands."""
