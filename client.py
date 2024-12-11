@@ -39,6 +39,16 @@ def handle_command(command):
         send_packet(JOIN, username.ljust(32).encode() + channel_name.ljust(32).encode())
         joined_channels.add(channel_name)
         active_channel = channel_name
+    elif command.startswith("/say"):
+        message = command[5:].strip()
+        if not message:
+            print("Error: Message cannot be empty.")
+            return
+        send_packet(SAY,  active_channel.ljust(32).encode() + username.ljust(32).encode() + message.ljust(64).encode())
+    elif command.startswith("/switch"):
+        pass
+    elif command.startswith("/who"):
+        pass
     else:
         print("Unknown or malformed command.")
 
