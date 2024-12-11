@@ -1,6 +1,5 @@
 import socket
 import struct
-import threading
 
 # Message types
 LOGIN, LOGOUT, LIST, JOIN, SAY, WHO, LEAVE, KEEP_ALIVE = range(8)
@@ -42,6 +41,30 @@ def process_request(data, address):
         channel_name = data[36:68].strip().decode()
         channels.setdefault(channel_name, set()).add(username)
         print(f"User {username} joined channel {channel_name}.")
+    elif message_type == LEAVE and len(data) >= 68:
+        username = data[4:36].strip().decode()
+        channel_name = data[36:68].strip().decode()
+        if channel_name in channels:
+            channels[channel_name].discard(username)
+            if not channels[channel_name]:  # Remove empty channel
+                del channels[channel_name]
+            print(f"User {username} left channel {channel_name}.")
+    elif message_type == SAY and len(data) >= 132:
+        channel_name = data[4:36].strip().decode()
+        username = data[36:68].strip().decode()
+        message = data[68:132].strip().decode()
+        if channel_name in channels:
+            for user in channels[channel_name]:
+                if user in users:
+                    send_packet(users[user], SAY, f"[{channel_name}][{username}]: {message}".encode())
+            print(f"[{channel_name}][{username}]: {message}")
+    elif message_type == WHO and len(data) >= 36:
+        channel_name = data[4:36].strip().decode()
+        if channel_name in channels:
+            user_list = ", ".join(channels[channel_name]).encode()
+            send_packet(address, WHO, f"Active users: {user_list.decode()}".encode())
+        else:
+            send_packet(address, WHO, b"Error: Channel not found.")
     else:
         print(f"Unknown message type: {message_type}")
 
